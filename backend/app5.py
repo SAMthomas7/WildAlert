@@ -8,7 +8,7 @@ from flask_cors import CORS
 from firebase_admin import credentials, firestore
 import datetime
 import asyncio
-from exercise_deepseek import suggest_speech_fluency_plan
+
 
 # Load Firebase credentials
 cred = credentials.Certificate("firebaseKey.json")
