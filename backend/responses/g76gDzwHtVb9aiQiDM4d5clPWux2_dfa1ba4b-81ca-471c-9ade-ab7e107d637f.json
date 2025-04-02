@@ -1,0 +1,132 @@
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import "../App.css";
+
+function ProgressTrackingPage() {
+  const navigate = useNavigate();
+  const db = getFirestore();
+  const auth = getAuth();
+
+  // State setup
+  const [userId, setUserId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sessionResults, setSessionResults] = useState([]);
+
+  // Get user ID from Firebase Auth
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid);
+      } else {
+        setError("User not logged in");
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, [auth]);
+
+  // Fetch session data from Firestore based on userId and order by date
+  useEffect(() => {
+    const fetchSessions = async () => {
+      if (!userId) return;
+
+      try {
+        const sessionsRef = collection(db, "sessions");
+        const q = query(
+          sessionsRef,
+          where("user_id", "==", userId),
+          orderBy("timestamp", "desc") // Order by latest first
+        );
+
+        const querySnapshot = await getDocs(q);
+        const sessions = [];
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          const formattedDate = new Date(data.timestamp).toLocaleString(); // Format date nicely
+          sessions.push({ id: doc.id, ...data, formattedDate });
+        });
+
+        setSessionResults(sessions);
+      } catch (err) {
+        console.error("Error fetching sessions:", err);
+        setError("Failed to fetch session data.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (userId) fetchSessions();
+  }, [db, userId]);
+
+  return (
+    <div className="font-sans bg-white p-0 m-0 text-gray-800 min-h-screen">
+      {/* Header */}
+      <header className="bg-blue-900 text-white flex justify-between items-center px-9 py-4">
+        <h1 className="font-bold text-3xl">
+          <span className="text-white">Speak</span>
+          <span className="text-red-500">Easy</span>
+        </h1>
+        <nav className="flex flex-grow justify-end">
+          <ul className="flex space-x-6">
+            <li className="text-lg font-regular hover:text-gray-300 cursor-pointer" onClick={() => navigate("/home")}>
+              Home
+            </li>
+            <li
+              className="text-lg font-regular hover:text-gray-300 cursor-pointer"
+              onClick={() => window.open("https://www.linkedin.com/in/sam-thomas-6ab3a1227/", "_blank")}
+              style={{ marginRight: "40px" }}
+            >
+              Contact
+            </li>
+          </ul>
+        </nav>
+        <button
+          className="text-white border border-white px-5 py-1 rounded-full hover:bg-gray-200 hover:text-blue-900 transition-colors duration-200"
+          onClick={() => navigate("/login")}
+        >
+          Logout
+        </button>
+      </header>
+
+      {/* Main Content */}
+      <main className="p-10 flex flex-col space-y-8">
+        <h2 className="text-3xl font-bold mb-4">Progress Tracking</h2>
+
+        {loading ? (
+          <p>Loading session data...</p>
+        ) : error ? (
+          <p className="text-red-500">{error}</p>
+        ) : sessionResults.length === 0 ? (
+          <p className="text-gray-600">No sessions found.</p>
+        ) : (
+          sessionResults.map((session, index) => (
+            <div key={index} className="bg-gray-100 border border-gray-300 p-6 rounded-lg shadow-md space-y-2">
+              <h4 className="text-xl font-semibold text-blue-900 mb-1">Session {index + 1}</h4>
+              <p className="text-gray-700 text-lg mb-1">📅 Date: {session.formattedDate}</p>
+              <p className="text-gray-700"><strong>Predicted Class:</strong> {session.colab_prediction.predicted_class}</p>
+              <p className="text-gray-700"><strong>Confidence:</strong> {session.colab_prediction.confidence.toFixed(2)}</p>
+
+              <h5 className="text-lg font-bold text-red-800 mt-3">Features</h5>
+              <ul className="text-gray-700">
+                {Object.entries(session.colab_prediction.features).map(([key, value]) => (
+                  <li key={key}>
+                    <strong>{key.replace(/_/g, " ")}:</strong> {value}
+                  </li>
+                ))}
+              </ul>
+
+              <h5 className="text-lg font-bold text-green-800 mt-3">Personalized Exercises</h5>
+              <p className="text-gray-700 whitespace-pre-wrap">{session.deepseek_exercises}</p>
+            </div>
+          ))
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default ProgressTrackingPage;

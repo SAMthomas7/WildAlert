@@ -1,0 +1,18 @@
+{
+    "user_id": "g76gDzwHtVb9aiQiDM4d5clPWux2",
+    "colab_prediction": {
+        "confidence": 0.7933381795883179,
+        "features": {
+            "avg_pitch": 799.6725463867188,
+            "duration": 7.2446875,
+            "speech_rate": 16000.0,
+            "total_pause_time": 0.384,
+            "zero_crossings": 10641.0
+        },
+        "predicted_class": "stuttering"
+    },
+    "formatted_exercises": {
+        "error": "Could not format exercise result"
+    },
+    "timestamp": "2025-03-24T17:22:08.969419"
+}

@@ -1,0 +1,13 @@
+{
+    "user_id": "WC12dsqfwKM2kFa8DTB9obuwrt62",
+    "confidence": 0.45257827639579773,
+    "features": {
+        "avg_pitch": 783.665283203125,
+        "duration": 1.59,
+        "speech_rate": 16000.0,
+        "total_pause_time": 0.096,
+        "zero_crossings": 1804.0
+    },
+    "predicted_class": "dysarthria",
+    "timestamp": "2025-02-24T06:51:04.956100"
+}

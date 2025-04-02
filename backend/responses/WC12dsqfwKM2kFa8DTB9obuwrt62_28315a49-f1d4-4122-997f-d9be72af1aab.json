@@ -1,0 +1,13 @@
+{
+    "user_id": "WC12dsqfwKM2kFa8DTB9obuwrt62",
+    "confidence": 0.8367290496826172,
+    "features": {
+        "avg_pitch": 799.6725463867188,
+        "duration": 7.2446875,
+        "speech_rate": 16000.0,
+        "total_pause_time": 0.384,
+        "zero_crossings": 10641.0
+    },
+    "predicted_class": "cleft_lip",
+    "timestamp": "2025-02-23T20:00:46.750449"
+}

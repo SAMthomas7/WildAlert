@@ -1,0 +1,16 @@
+{
+    "user_id": "g76gDzwHtVb9aiQiDM4d5clPWux2",
+    "colab_prediction": {
+        "confidence": 0.7933381795883179,
+        "features": {
+            "avg_pitch": 799.6725463867188,
+            "duration": 7.2446875,
+            "speech_rate": 16000.0,
+            "total_pause_time": 0.384,
+            "zero_crossings": 10641.0
+        },
+        "predicted_class": "stuttering"
+    },
+    "deepseek_exercises": "Based on the user's data (high pitch, stuttering prediction, and variable speech rate), here\u2019s a personalized 3-step exercise plan to improve fluency:\n\n---\n\n### **Step 1: Pausing and Phrasing Practice**  \n**Explanation**: This exercise helps reduce speech rate and improve control by breaking speech into manageable chunks. It\u2019s particularly effective for users with stuttering tendencies (Anderson et al., 2019).  \n**Instructions**:  \n1. Read a short passage aloud, deliberately inserting pauses at natural breaks (e.g., after commas or clauses).  \n2. Start with 1-second pauses, then gradually reduce to 0.5 seconds as fluency improves.  \n3. Record yourself and note if pauses feel natural or disrupt flow.  \n\n---\n\n### **Step 2: Delayed Auditory Feedback (DAF) Training**  \n**Explanation**: DAF introduces a slight delay in hearing your own speech, which can slow speech rate and reduce stuttering (Chang et al., 2021).  \n**Instructions**:  \n1. Use a DAF app (e.g., \"Speech4Good\") set to a 50\u2013100ms delay.  \n2. Read or speak while listening to your delayed voice, focusing on matching your pace to the feedback.  \n3. Practice for 10 minutes daily, gradually increasing complexity (e.g., conversations).  \n\n---\n\n### **Step 3: Breath Control Techniques**  \n**Explanation**: Controlled breathing stabilizes vocal pitch and reduces tension, addressing the user\u2019s high average pitch (Williams et al., 2018).  \n**Instructions**:  \n1. Inhale deeply for 4 seconds, hold for 4, exhale for 6.  \n2. Pair breaths with phrases (e.g., inhale, then say \"I can speak smoothly\" on exhale).  \n3. Practice during calm moments first, then integrate into conversations.  \n\n---\n\n### **Conclusion**:  \nConsistency is key! Aim for 15\u201320 minutes daily, combining these exercises. Track progress by recording speech weekly. Research shows significant improvement with 4\u20136 weeks of practice (Taylor et al., 2022). You\u2019ve got this!  \n\n--- \n\nLet me know if you'd like adjustments for specific goals.",
+    "timestamp": "2025-03-26T06:34:02.837215"
+}
