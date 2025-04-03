@@ -1,22 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
-import '../App.css'; // Adjusted path since UploadPage.jsx is in src/pages/
-import Loader from "../components/loader"; // Adjusted path to components folder
+import '../App.css';
+import Loader from "../components/loader";
 
 function UploadPage() {
-  const [isAlertSent, setIsAlertSent] = useState(false); // State for alert status
-  const [error, setError] = useState(null); // Error state for logout
+  const [isAlertSent, setIsAlertSent] = useState(false);
+  const [error, setError] = useState(null);
+  const [userEmail, setUserEmail] = useState('');
+  const [videoSrc, setVideoSrc] = useState('');
   const navigate = useNavigate();
   const auth = getAuth();
 
-  const token = localStorage.getItem("token");
+  // Get authentication data
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("User is not authenticated");
+      navigate("/login");
+      return;
+    }
 
-  if (!token) {
-    console.error("User is not authenticated");
-    navigate("/login");
-    return null;
-  }
+    // Get user email if available
+    const currentUser = auth.currentUser;
+    if (currentUser && currentUser.email) {
+      setUserEmail(currentUser.email);
+      setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(currentUser.email)}`);
+    } else {
+      // Fallback to fetch email from Firebase
+      auth.onAuthStateChanged((user) => {
+        if (user && user.email) {
+          setUserEmail(user.email);
+          setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(user.email)}`);
+        } else {
+          console.warn("User email not available");
+          setVideoSrc('http://localhost:5000/video_feed');
+        }
+      });
+    }
+  }, [auth, navigate]);
 
   const handleLogout = async () => {
     try {
@@ -30,10 +52,37 @@ function UploadPage() {
     }
   };
 
-  const handleSendAlert = () => {
-    // Simulate sending an alert (replace with actual API call if needed)
-    setIsAlertSent(true);
-    setTimeout(() => setIsAlertSent(false), 3000); // Reset alert after 3 seconds
+  const handleSendAlert = async () => {
+    if (!userEmail) {
+      setError("User email not available. Cannot send alert.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:5000/send_alert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: userEmail,
+          animal_type: 'detected animal',
+          location: 'Serengeti National Park'
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setIsAlertSent(true);
+        setTimeout(() => setIsAlertSent(false), 3000);
+      } else {
+        setError("Failed to send alert. Please try again.");
+      }
+    } catch (err) {
+      console.error("Error sending alert:", err);
+      setError("Network error. Please check your connection.");
+    }
   };
 
   return (
@@ -78,46 +127,46 @@ function UploadPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center p-20 relative">
-        {/* Background Video with Detections */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src="http://localhost:5000/video_feed"
-            alt="CCTV Video with Wild Animal Detection"
-            className="w-full h-full object-cover"
-            onError={() => console.error("Error loading video feed")}
-          />
-          {/* Overlay for better text visibility */}
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundColor: "rgba(0, 0, 0, 0.5)", // Semi-transparent black overlay
-            }}
-          />
-        </div>
-
-        {/* Location Name */}
-        <div className="relative z-10 w-full text-center mb-6">
+      <main className="flex-1 flex flex-col items-center pt-28 pb-14 px-8">
+        {/* Location Name - Now above the video */}
+        <div className="w-full text-center mb-6">
           <h2 className="text-3xl font-semibold text-white bg-gray-900 bg-opacity-70 inline-block px-6 py-2 rounded">
-            Serengeti National Park
+            Mathura
           </h2>
         </div>
 
-        {/* Alert Section */}
-        <div className="relative z-10 flex flex-col items-center space-y-6">
+        {/* Info Text - Now above the video */}
+        <div className="w-full flex flex-col items-center space-y-4 mb-6">
           <p className="text-lg text-gray-300 text-center max-w-md">
-            Wild animal detected in the footage. Send an alert to notify authorities and nearby users.
+            Wild animal detection is active. Automatic alerts will be sent to {userEmail || "your email"} when animals are detected for more than 5 consecutive frames.
           </p>
           <button
             className="bg-red-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-red-800 transition-colors duration-200"
             onClick={handleSendAlert}
           >
-            Send Alert
+            Send Manual Alert
           </button>
           {isAlertSent && (
             <p className="text-green-400 font-semibold animate-pulse">
               Alert Sent Successfully!
             </p>
+          )}
+        </div>
+        
+        {/* Video Container - Now in a contained box with proper aspect ratio */}
+        <div className="relative w-full max-w-4xl h-auto bg-gray-800 rounded overflow-hidden">
+          {videoSrc ? (
+            <img
+              src={videoSrc}
+              alt="CCTV Video with Wild Animal Detection"
+              className="w-full h-full object-contain"
+              style={{ aspectRatio: "16/9", maxHeight: "70vh" }}
+              onError={() => console.error("Error loading video feed")}
+            />
+          ) : (
+            <div className="w-full flex items-center justify-center" style={{ aspectRatio: "16/9", maxHeight: "70vh" }}>
+              <Loader />
+            </div>
           )}
         </div>
       </main>
