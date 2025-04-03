@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
-import '.././App.css';
-import Loader from "../components/loader"; // Assuming you have this component
+import '../App.css'; // Adjusted path since UploadPage.jsx is in src/pages/
+import Loader from "../components/loader"; // Adjusted path to components folder
 
 function UploadPage() {
   const [isAlertSent, setIsAlertSent] = useState(false); // State for alert status
@@ -79,19 +79,21 @@ function UploadPage() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col items-center justify-center p-20 relative">
-        {/* Background Video Placeholder */}
+        {/* Background Video with Detections */}
         <div className="absolute inset-0 z-0">
+          <img
+            src="http://localhost:5000/video_feed"
+            alt="CCTV Video with Wild Animal Detection"
+            className="w-full h-full object-cover"
+            onError={() => console.error("Error loading video feed")}
+          />
+          {/* Overlay for better text visibility */}
           <div
-            className="w-full h-full bg-gray-800 flex items-center justify-center"
+            className="absolute inset-0"
             style={{
-              backgroundColor: "#333",
-              opacity: 0.8,
+              backgroundColor: "rgba(0, 0, 0, 0.5)", // Semi-transparent black overlay
             }}
-          >
-            <p className="text-white text-2xl font-semibold">
-              [CCTV Video Placeholder - Wild Animal Detection]
-            </p>
-          </div>
+          />
         </div>
 
         {/* Location Name */}

@@ -1,149 +1,75 @@
+from flask import Flask, Response
+from ultralytics import YOLO
+import cv2
 import os
-import json
-import uuid
-import requests
-import firebase_admin
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from firebase_admin import credentials, firestore
-import datetime
-import asyncio
-
-
-# Load Firebase credentials
-cred = credentials.Certificate("firebaseKey.json")
-firebase_admin.initialize_app(cred)
-
-# Firestore
-db = firestore.client()
 
 app = Flask(__name__)
 
-# Configuration
-UPLOAD_FOLDER = "uploads"
-RESPONSES_FOLDER = "responses"
-COLAB_URL = "https://6349-34-19-13-178.ngrok-free.app"  # Update when ngrok restarts
+# Load the YOLO model
+model = YOLO("best.pt")  # Ensure best.pt is in the backend folder
 
-# CORS Configuration
-CORS(app, 
-     resources={r"/*": {
-         "origins": ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
-         "methods": ["GET", "POST", "OPTIONS"],
-         "allow_headers": ["Content-Type", "Authorization"],
-         "supports_credentials": True
-     }})
+# Path to the video file
+VIDEO_PATH = os.path.join(os.path.dirname(__file__), "../frontend/src/assets/assets/cctv.mp4")
+print(f"Attempting to open video at: {VIDEO_PATH}")  # Debug the path
 
-# Ensure necessary folders exist
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(RESPONSES_FOLDER, exist_ok=True)
+# Classes your model detects
+CLASSES = ["tiger", "bear", "elephant", "wild boar", "lion", "wild buffalo"]
 
-def send_audio_to_colab(file_path):
-    """Sends an audio file to the Colab API for inference."""
-    try:
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Audio file not found at {file_path}")
+def generate_frames():
+    """Generate video frames with YOLO detection."""
+    cap = cv2.VideoCapture(VIDEO_PATH)
+    
+    if not cap.isOpened():
+        print(f"Error: Could not open video file at {VIDEO_PATH}")
+        return
 
-        full_url = f"{COLAB_URL}/predict"
-        print(f"🔵 Sending request to Colab at: {full_url}")
+    print("Video file opened successfully!")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop the video
+            continue
 
-        # Verify Colab server is running
-        try:
-            verify = requests.get(COLAB_URL)
-            print(f"🟢 Colab server status: {verify.status_code}")
-        except requests.exceptions.RequestException as e:
-            print(f"🔴 Failed to connect to Colab server: {str(e)}")
-            return {"error": "Could not connect to Colab server. Ensure the notebook is running."}
+        # Run YOLO detection
+        results = model(frame)
 
-        # Send audio file
-        with open(file_path, "rb") as audio_file:
-            files = {"audio": ("audio.wav", audio_file, "audio/wav")}
-            response = requests.post(full_url, files=files)
+        # Draw bounding boxes and labels on the frame
+        for result in results:
+            boxes = result.boxes.xyxy  # Bounding box coordinates
+            confidences = result.boxes.conf  # Confidence scores
+            class_ids = result.boxes.cls  # Class IDs
 
-        print(f"🟠 Colab response status: {response.status_code}")
-        if response.status_code != 200:
-            print(f"🔴 Colab response content: {response.text}")
+            for i in range(len(boxes)):
+                x1, y1, x2, y2 = map(int, boxes[i])
+                confidence = confidences[i]
+                class_id = int(class_ids[i])
+                label = f"{CLASSES[class_id]} {confidence:.2f}"
 
-        if response.status_code == 404:
-            return {"error": "Colab endpoint not found. Ensure the notebook is running with the /predict endpoint."}
-        elif response.status_code == 200:
-            return response.json()
-        else:
-            return {"error": f"Colab API error: Status {response.status_code}"}
+                # Draw rectangle and label
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-    except Exception as e:
-        print(f"🔴 Error sending to Colab: {str(e)}")
-        return {"error": str(e)}
+        # Encode frame as JPEG
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+        frame = buffer.tobytes()
 
-@app.route('/upload-audio', methods=['POST', 'OPTIONS'])
-def upload_audio():
-    """Handles audio file upload, sends to Colab, and stores results in Firebase Firestore."""
-    if request.method == 'OPTIONS':
-        response = jsonify({'status': 'ok'})
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
+        # Yield frame in byte format for streaming
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-    try:
-        print(f"📥 Received request: {request.form} | Files: {request.files}")
+    cap.release()
 
-        if 'audio' not in request.files:
-            print("🔴 Error: No audio file in request")
-            return jsonify({'error': 'Audio file is missing'}), 400
+@app.route('/video_feed')
+def video_feed():
+    """Stream the video with detections."""
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-        if 'user_id' not in request.form:
-            print("🔴 Error: User ID is missing")
-            return jsonify({'error': 'User ID is missing'}), 400
-
-        user_id = request.form['user_id']
-        audio_file = request.files['audio']
-
-        # Save the audio file temporarily
-        file_path = os.path.join(UPLOAD_FOLDER, f"{uuid.uuid4()}.wav")
-        audio_file.save(file_path)
-        print(f"🟢 File saved at: {file_path}")
-
-        # Send to Google Colab for inference
-        prediction = send_audio_to_colab(file_path)
-
-        # Delete the local temporary file after sending
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"🗑️ Temporary file deleted: {file_path}")
-
-        # Handle Colab errors
-        if "error" in prediction:
-            return jsonify(prediction), 500
-
-        # Call DeepSeek API with the prediction result
-        deepseek_result = asyncio.run(suggest_speech_fluency_plan(prediction))
-
-        # ✅ Prepare comprehensive result for Firebase
-        result = {
-            "user_id": user_id,
-            "colab_prediction": prediction,
-            "deepseek_exercises": deepseek_result,
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
-
-        # Store in Firebase Firestore
-        doc_ref = db.collection("assessments").add(result)
-        print(f"✅ Assessment stored in Firebase for user: {user_id}")
-
-        # Save response as JSON file (optional, but kept for backup)
-        json_filename = os.path.join(RESPONSES_FOLDER, f"{user_id}_{uuid.uuid4()}.json")
-        with open(json_filename, "w") as json_file:
-            json.dump(result, json_file, indent=4)
-
-        print(f"📄 Response saved as JSON: {json_filename}")
-
-        return jsonify({
-            'colab_prediction': prediction, 
-            'deepseek_exercises': deepseek_result, 
-            'message': 'Audio processed successfully'
-        })
-
-    except Exception as e:
-        print(f"🔴 Upload error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+@app.route('/')
+def index():
+    """Simple endpoint to verify server is running."""
+    return "WildAlert Backend is running!"
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
