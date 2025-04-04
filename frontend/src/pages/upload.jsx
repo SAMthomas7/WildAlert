@@ -1,22 +1,69 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
-import '../App.css'; // Adjusted path since UploadPage.jsx is in src/pages/
-import Loader from "../components/loader"; // Adjusted path to components folder
+import '../App.css';
+import Loader from "../components/loader";
 
 function UploadPage() {
-  const [isAlertSent, setIsAlertSent] = useState(false); // State for alert status
-  const [error, setError] = useState(null); // Error state for logout
+  const [isAlertSent, setIsAlertSent] = useState(false);
+  const [error, setError] = useState(null);
+  const [userEmail, setUserEmail] = useState('');
+  const [videoSrc, setVideoSrc] = useState('');
+  const [isWebcamOpen, setIsWebcamOpen] = useState(false); // State for webcam visibility
+  const webcamRef = useRef(null); // Ref for webcam video element
   const navigate = useNavigate();
   const auth = getAuth();
 
-  const token = localStorage.getItem("token");
+  // Get authentication data
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      console.error("User is not authenticated");
+      navigate("/login");
+      return;
+    }
 
-  if (!token) {
-    console.error("User is not authenticated");
-    navigate("/login");
-    return null;
-  }
+    const currentUser = auth.currentUser;
+    if (currentUser && currentUser.email) {
+      setUserEmail(currentUser.email);
+      setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(currentUser.email)}`);
+    } else {
+      auth.onAuthStateChanged((user) => {
+        if (user && user.email) {
+          setUserEmail(user.email);
+          setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(user.email)}`);
+        } else {
+          console.warn("User email not available");
+          setVideoSrc('http://localhost:5000/video_feed');
+        }
+      });
+    }
+  }, [auth, navigate]);
+
+  // Handle webcam start
+  const startWebcam = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (webcamRef.current) {
+        webcamRef.current.srcObject = stream;
+        setIsWebcamOpen(true);
+      }
+    } catch (err) {
+      console.error("Error accessing webcam:", err);
+      setError("Failed to access webcam. Please allow camera permissions.");
+    }
+  };
+
+  // Handle webcam close
+  const closeWebcam = () => {
+    if (webcamRef.current && webcamRef.current.srcObject) {
+      const stream = webcamRef.current.srcObject;
+      const tracks = stream.getTracks();
+      tracks.forEach(track => track.stop()); // Stop all tracks
+      webcamRef.current.srcObject = null;
+    }
+    setIsWebcamOpen(false);
+  };
 
   const handleLogout = async () => {
     try {
@@ -30,10 +77,34 @@ function UploadPage() {
     }
   };
 
-  const handleSendAlert = () => {
-    // Simulate sending an alert (replace with actual API call if needed)
-    setIsAlertSent(true);
-    setTimeout(() => setIsAlertSent(false), 3000); // Reset alert after 3 seconds
+  const handleSendAlert = async () => {
+    if (!userEmail) {
+      setError("User email not available. Cannot send alert.");
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:5000/send_alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          animal_type: 'detected animal',
+          location: 'Serengeti National Park'
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setIsAlertSent(true);
+        setTimeout(() => setIsAlertSent(false), 3000);
+      } else {
+        setError("Failed to send alert. Please try again.");
+      }
+    } catch (err) {
+      console.error("Error sending alert:", err);
+      setError("Network error. Please check your connection.");
+    }
   };
 
   return (
@@ -46,10 +117,7 @@ function UploadPage() {
         </h1>
         <nav className="flex flex-grow justify-end">
           <ul className="flex space-x-6">
-            <li
-              className="text-lg font-regular hover:text-gray-400 cursor-pointer"
-              onClick={() => navigate("/home")}
-            >
+            <li className="text-lg font-regular hover:text-gray-400 cursor-pointer" onClick={() => navigate("/home")}>
               Home
             </li>
             <li
@@ -62,62 +130,86 @@ function UploadPage() {
           </ul>
         </nav>
         <div className="flex space-x-4">
-          <button
-            className="text-white border border-white px-5 py-1 rounded-full hover:bg-gray-700 transition-colors duration-200"
-            onClick={() => navigate("/tracking")}
-          >
+          <button className="text-white border border-white px-5 py-1 rounded-full hover:bg-gray-700 transition-colors duration-200" onClick={() => navigate("/tracking")}>
             Profile
           </button>
-          <button
-            className="text-white border border-white px-5 py-1 rounded-full hover:bg-gray-700 transition-colors duration-200"
-            onClick={handleLogout}
-          >
+          <button className="text-white border border-white px-5 py-1 rounded-full hover:bg-gray-700 transition-colors duration-200" onClick={handleLogout}>
             Logout
           </button>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center p-20 relative">
-        {/* Background Video with Detections */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src="http://localhost:5000/video_feed"
-            alt="CCTV Video with Wild Animal Detection"
-            className="w-full h-full object-cover"
-            onError={() => console.error("Error loading video feed")}
-          />
-          {/* Overlay for better text visibility */}
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundColor: "rgba(0, 0, 0, 0.5)", // Semi-transparent black overlay
-            }}
-          />
-        </div>
-
+      <main className="flex-1 flex flex-col items-center pt-28 pb-14 px-8">
         {/* Location Name */}
-        <div className="relative z-10 w-full text-center mb-6">
+        <div className="w-full text-center mb-6">
           <h2 className="text-3xl font-semibold text-white bg-gray-900 bg-opacity-70 inline-block px-6 py-2 rounded">
-            Serengeti National Park
+            Mathura
           </h2>
         </div>
 
-        {/* Alert Section */}
-        <div className="relative z-10 flex flex-col items-center space-y-6">
+        {/* Info Text and Buttons */}
+        <div className="w-full flex flex-col items-center space-y-4 mb-6">
           <p className="text-lg text-gray-300 text-center max-w-md">
-            Wild animal detected in the footage. Send an alert to notify authorities and nearby users.
+            Wild animal detection is active. Automatic alerts will be sent to {userEmail || "your email"} when animals are detected for more than 5 consecutive frames.
           </p>
-          <button
-            className="bg-red-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-red-800 transition-colors duration-200"
-            onClick={handleSendAlert}
-          >
-            Send Alert
-          </button>
+          <div className="flex space-x-4">
+            <button
+              className="bg-red-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-red-800 transition-colors duration-200"
+              onClick={handleSendAlert}
+            >
+              Send Manual Alert
+            </button>
+            <button
+              className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-800 transition-colors duration-200"
+              onClick={startWebcam}
+            >
+              Add Camera Feed
+            </button>
+          </div>
           {isAlertSent && (
             <p className="text-green-400 font-semibold animate-pulse">
               Alert Sent Successfully!
             </p>
+          )}
+        </div>
+
+        {/* Video Feeds Container */}
+        <div className="w-full max-w-4xl flex flex-col space-y-6">
+          {/* CCTV Video Feed */}
+          <div className="relative w-full h-auto bg-gray-800 rounded overflow-hidden">
+            {videoSrc ? (
+              <img
+                src={videoSrc}
+                alt="CCTV Video with Wild Animal Detection"
+                className="w-full h-full object-contain"
+                style={{ aspectRatio: "16/9", maxHeight: "70vh" }}
+                onError={() => console.error("Error loading video feed")}
+              />
+            ) : (
+              <div className="w-full flex items-center justify-center" style={{ aspectRatio: "16/9", maxHeight: "70vh" }}>
+                <Loader />
+              </div>
+            )}
+          </div>
+
+          {/* Webcam Feed (conditionally rendered) */}
+          {isWebcamOpen && (
+            <div className="relative w-full h-auto bg-gray-800 rounded overflow-hidden">
+              <video
+                ref={webcamRef}
+                autoPlay
+                playsInline
+                className="w-full h-full object-contain"
+                style={{ aspectRatio: "16/9", maxHeight: "70vh" }}
+              />
+              <button
+                className="absolute top-2 right-2 bg-red-600 text-white px-4 py-2 rounded-full hover:bg-red-800 transition-colors duration-200"
+                onClick={closeWebcam}
+              >
+                Close
+              </button>
+            </div>
           )}
         </div>
       </main>
@@ -145,10 +237,7 @@ function UploadPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-2">
             <h3 className="font-semibold text-white">WildAlert</h3>
-            <div
-              className="text-lg font-regular hover:text-gray-400 cursor-pointer"
-              onClick={() => navigate('/home')}
-            >
+            <div className="text-lg font-regular hover:text-gray-400 cursor-pointer" onClick={() => navigate('/home')}>
               Home
             </div>
             <div
@@ -166,16 +255,10 @@ function UploadPage() {
             >
               LinkedIn
             </div>
-            <div
-              onClick={() => window.open("https://www.instagram.com", "_blank")}
-              className="hover:text-gray-400 cursor-pointer"
-            >
+            <div onClick={() => window.open("https://www.instagram.com", "_blank")} className="hover:text-gray-400 cursor-pointer">
               Instagram
             </div>
-            <div
-              onClick={() => window.open("https://www.facebook.com", "_blank")}
-              className="hover:text-gray-400 cursor-pointer"
-            >
+            <div onClick={() => window.open("https://www.facebook.com", "_blank")} className="hover:text-gray-400 cursor-pointer">
               Facebook
             </div>
           </div>
