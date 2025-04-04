@@ -25,7 +25,7 @@ app.config['MAIL_USE_TLS'] = True
 
 # HARDCODED CREDENTIALS FOR TESTING - Replace with your actual app password
 app.config['MAIL_USERNAME'] = "sam.kaimala@gmail.com"  # Replace with your Gmail address
-app.config['MAIL_PASSWORD'] = "mkxd qhbl helz stgi"  # Replace with your App Password
+app.config['MAIL_PASSWORD'] = ""  # Replace with your App Password
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 print(f"Using email: {app.config['MAIL_USERNAME']}")
