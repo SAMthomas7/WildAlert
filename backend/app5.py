@@ -162,20 +162,32 @@ def generate_frames(user_email="default@example.com"):
                 frame_detections = set()
 
                 # Draw bounding boxes and labels
-                for result in results:
-                    boxes = result.boxes.xyxy
-                    confidences = result.boxes.conf
-                    class_ids = result.boxes.cls
-                    for i in range(len(boxes)):
-                        x1, y1, x2, y2 = map(int, boxes[i])
-                        confidence = confidences[i]
-                        class_id = int(class_ids[i])
-                        animal_type = CLASSES[class_id]
-                        label = f"{animal_type} {confidence:.2f}"
-                        frame_detections.add(animal_type)
-                        # Draw green rectangle and label
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                try:
+                    for result in results:
+                        boxes = result.boxes.xyxy
+                        confidences = result.boxes.conf
+                        class_ids = result.boxes.cls
+                        print(f"Processing {len(boxes)} detections with class IDs: {class_ids.tolist()}")
+                        for i in range(len(boxes)):
+                            try:
+                                x1, y1, x2, y2 = map(int, boxes[i])
+                                confidence = confidences[i]
+                                class_id = int(class_ids[i])
+                                if class_id < 0 or class_id >= len(CLASSES):
+                                    print(f"Invalid class_id {class_id} detected, skipping")
+                                    continue
+                                animal_type = CLASSES[class_id]
+                                label = f"{animal_type} {confidence:.2f}"
+                                frame_detections.add(animal_type)
+                                # Draw green rectangle and label
+                                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                            except IndexError as e:
+                                print(f"IndexError in detection processing: {e}, skipping detection {i}")
+                                continue
+                except Exception as e:
+                    print(f"Error processing YOLO results: {e}, skipping frame")
+                    continue
 
                 # Update detection counter
                 for animal in frame_detections:
