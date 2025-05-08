@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAuth, signOut } from 'firebase/auth';
 import '../App.css';
@@ -9,60 +9,68 @@ function UploadPage() {
   const [error, setError] = useState(null);
   const [userEmail, setUserEmail] = useState('');
   const [videoSrc, setVideoSrc] = useState('');
-  const [isWebcamOpen, setIsWebcamOpen] = useState(false); // State for webcam visibility
-  const webcamRef = useRef(null); // Ref for webcam video element
+  const [isCamStarted, setIsCamStarted] = useState(false);
   const navigate = useNavigate();
   const auth = getAuth();
 
-  // Get authentication data
+  // Set user email and handle video source when cam is started
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
-      console.error("User is not authenticated");
+      console.error("User not authenticated");
       navigate("/login");
       return;
     }
 
     const currentUser = auth.currentUser;
+    const updateVideoSrc = () => {
+      if (currentUser && currentUser.email) {
+        setUserEmail(currentUser.email);
+        setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(currentUser.email)}&t=${Date.now()}`);
+      } else {
+        console.warn("User email not available");
+        setVideoSrc(`http://localhost:5000/video_feed?t=${Date.now()}`);
+      }
+    };
+
     if (currentUser && currentUser.email) {
       setUserEmail(currentUser.email);
-      setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(currentUser.email)}`);
+      if (isCamStarted) {
+        updateVideoSrc();
+      }
     } else {
       auth.onAuthStateChanged((user) => {
         if (user && user.email) {
           setUserEmail(user.email);
-          setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(user.email)}`);
-        } else {
-          console.warn("User email not available");
-          setVideoSrc('http://localhost:5000/video_feed');
+          if (isCamStarted) {
+            updateVideoSrc();
+          }
+        } else if (isCamStarted) {
+          updateVideoSrc();
         }
       });
     }
-  }, [auth, navigate]);
 
-  // Handle webcam start
-  const startWebcam = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (webcamRef.current) {
-        webcamRef.current.srcObject = stream;
-        setIsWebcamOpen(true);
-      }
-    } catch (err) {
-      console.error("Error accessing webcam:", err);
-      setError("Failed to access webcam. Please allow camera permissions.");
+    // Retry video feed every 5 seconds if it fails
+    let interval;
+    if (isCamStarted) {
+      interval = setInterval(() => {
+        if (error) {
+          setError(null);
+          updateVideoSrc();
+        }
+      }, 5000);
     }
-  };
 
-  // Handle webcam close
-  const closeWebcam = () => {
-    if (webcamRef.current && webcamRef.current.srcObject) {
-      const stream = webcamRef.current.srcObject;
-      const tracks = stream.getTracks();
-      tracks.forEach(track => track.stop()); // Stop all tracks
-      webcamRef.current.srcObject = null;
-    }
-    setIsWebcamOpen(false);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [auth, navigate, isCamStarted, error]);
+
+  const handleStartCam = () => {
+    setIsCamStarted(true);
+    setError(null);
+    setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(userEmail || 'default@example.com')}&t=${Date.now()}`);
   };
 
   const handleLogout = async () => {
@@ -73,16 +81,15 @@ function UploadPage() {
       navigate("/login");
     } catch (error) {
       console.error("Error signing out:", error);
-      setError("Failed to sign out. Please try again.");
+      setError("Failed to sign out");
     }
   };
 
   const handleSendAlert = async () => {
     if (!userEmail) {
-      setError("User email not available. Cannot send alert.");
+      setError("User email not available");
       return;
     }
-
     try {
       const response = await fetch('http://localhost:5000/send_alert', {
         method: 'POST',
@@ -93,18 +100,22 @@ function UploadPage() {
           location: 'Serengeti National Park'
         }),
       });
-
       const data = await response.json();
       if (data.success) {
         setIsAlertSent(true);
         setTimeout(() => setIsAlertSent(false), 3000);
       } else {
-        setError("Failed to send alert. Please try again.");
+        setError("Failed to send alert");
       }
     } catch (err) {
       console.error("Error sending alert:", err);
-      setError("Network error. Please check your connection.");
+      setError("Network error. Please check your connection and backend server.");
     }
+  };
+
+  const handleRetryFeed = () => {
+    setError(null);
+    setVideoSrc(`http://localhost:5000/video_feed?email=${encodeURIComponent(userEmail || 'default@example.com')}&t=${Date.now()}`);
   };
 
   return (
@@ -151,20 +162,22 @@ function UploadPage() {
         {/* Info Text and Buttons */}
         <div className="w-full flex flex-col items-center space-y-4 mb-6">
           <p className="text-lg text-gray-300 text-center max-w-md">
-            Wild animal detection is active. Automatic alerts will be sent to {userEmail || "your email"} when animals are detected for more than 5 consecutive frames.
+            Wild animal detection is active using your webcam. Click "Start Cam" to begin. Animals are marked with green rectangles and probability scores. Automatic alerts will be sent to {userEmail || "your email"} when animals are detected for more than 5 consecutive frames.
           </p>
           <div className="flex space-x-4">
+            {!isCamStarted && (
+              <button
+                className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-800 transition-colors duration-200"
+                onClick={handleStartCam}
+              >
+                Start Cam
+              </button>
+            )}
             <button
               className="bg-red-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-red-800 transition-colors duration-200"
               onClick={handleSendAlert}
             >
               Send Manual Alert
-            </button>
-            <button
-              className="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold hover:bg-blue-800 transition-colors duration-200"
-              onClick={startWebcam}
-            >
-              Add Camera Feed
             </button>
           </div>
           {isAlertSent && (
@@ -174,43 +187,40 @@ function UploadPage() {
           )}
         </div>
 
-        {/* Video Feeds Container */}
+        {/* Webcam Feed Container */}
         <div className="w-full max-w-4xl flex flex-col space-y-6">
-          {/* CCTV Video Feed */}
           <div className="relative w-full h-auto bg-gray-800 rounded overflow-hidden">
-            {videoSrc ? (
+            {isCamStarted && videoSrc && !error ? (
               <img
                 src={videoSrc}
-                alt="CCTV Video with Wild Animal Detection"
+                alt="Webcam Feed with Wild Animal Detection"
                 className="w-full h-full object-contain"
                 style={{ aspectRatio: "16/9", maxHeight: "70vh" }}
-                onError={() => console.error("Error loading video feed")}
+                onError={() => {
+                  console.error("Error loading webcam feed");
+                  setError("Failed to load webcam feed. Retrying automatically in 5 seconds. Ensure your webcam is connected, not in use by another application, and accessible by the backend server.");
+                }}
               />
+            ) : isCamStarted && error ? (
+              <div className="w-full flex flex-col items-center justify-center text-gray-400" style={{ aspectRatio: "16/9", maxHeight: "70vh" }}>
+                <img
+                  src="https://via.placeholder.com/640x360.png?text=Webcam+Unavailable"
+                  alt="Webcam Unavailable"
+                  className="w-full h-full object-contain"
+                />
+                <p className="mt-2">Webcam feed unavailable. Retrying...</p>
+              </div>
             ) : (
-              <div className="w-full flex items-center justify-center" style={{ aspectRatio: "16/9", maxHeight: "70vh" }}>
-                <Loader />
+              <div className="w-full flex flex-col items-center justify-center text-gray-400" style={{ aspectRatio: "16/9", maxHeight: "70vh" }}>
+                <img
+                  src="https://via.placeholder.com/640x360.png?text=Press+Start+Cam"
+                  alt="Press Start Cam"
+                  className="w-full h-full object-contain"
+                />
+                <p className="mt-2">Press "Start Cam" to begin</p>
               </div>
             )}
           </div>
-
-          {/* Webcam Feed (conditionally rendered) */}
-          {isWebcamOpen && (
-            <div className="relative w-full h-auto bg-gray-800 rounded overflow-hidden">
-              <video
-                ref={webcamRef}
-                autoPlay
-                playsInline
-                className="w-full h-full object-contain"
-                style={{ aspectRatio: "16/9", maxHeight: "70vh" }}
-              />
-              <button
-                className="absolute top-2 right-2 bg-red-600 text-white px-4 py-2 rounded-full hover:bg-red-800 transition-colors duration-200"
-                onClick={closeWebcam}
-              >
-                Close
-              </button>
-            </div>
-          )}
         </div>
       </main>
 
@@ -220,7 +230,13 @@ function UploadPage() {
           <div className="bg-gray-800 p-8 rounded-lg text-white">
             <h2 className="text-xl font-semibold mb-4 text-red-500">Error</h2>
             <p className="mb-4">{error}</p>
-            <div className="flex justify-end">
+            <div className="flex justify-end space-x-4">
+              <button
+                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-800 transition-colors duration-200"
+                onClick={handleRetryFeed}
+              >
+                Retry Now
+              </button>
               <button
                 className="bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors duration-200"
                 onClick={() => setError(null)}

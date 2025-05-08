@@ -7,56 +7,97 @@ import os
 from dotenv import load_dotenv
 import threading
 import time
+import uuid
+import platform
+from concurrent.futures import ThreadPoolExecutor
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Debug: Print loaded environment variables
-print(f"Email User loaded from env: {os.environ.get('EMAIL_USER', 'Not found')}")
-print(f"Email Password loaded: {'[SET]' if os.environ.get('EMAIL_PASSWORD') else '[NOT SET]'}")
+print(f"Email User: {os.environ.get('EMAIL_USER', 'Not found')}")
+print(f"Email Password: {'[SET]' if os.environ.get('EMAIL_PASSWORD') else '[NOT SET]'}")
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app)
 
-# Configure Flask-Mail with hardcoded credentials for testing
+# Configure Flask-Mail
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-
-# HARDCODED CREDENTIALS FOR TESTING - Replace with your actual app password
-app.config['MAIL_USERNAME'] = "sam.kaimala@gmail.com"  # Replace with your Gmail address
-app.config['MAIL_PASSWORD'] = ""  # Replace with your App Password
+app.config['MAIL_USERNAME'] = os.environ.get('EMAIL_USER', 'sam.kaimala@gmail.com')
+app.config['MAIL_PASSWORD'] = os.environ.get('EMAIL_PASSWORD', '')
 app.config['MAIL_DEFAULT_SENDER'] = app.config['MAIL_USERNAME']
 
 print(f"Using email: {app.config['MAIL_USERNAME']}")
-print("Mail password is configured as hardcoded value")
+print("Mail password configured")
 
 mail = Mail(app)
 
+# Thread pool for email sending
+executor = ThreadPoolExecutor(max_workers=2)
+
 # Load the YOLO model
-model = YOLO("best.pt")  # Ensure best.pt is in the backend folder
+try:
+    model = YOLO("best.pt")
+    print("YOLO model loaded successfully")
+except Exception as e:
+    print(f"Error loading YOLO model: {e}")
+    exit(1)
 
-# Path to the video file
-VIDEO_PATH = os.path.join(os.path.dirname(__file__), "../frontend/src/assets/assets/cctv.mp4")
-print(f"Attempting to open video at: {VIDEO_PATH}")  # Debug the path
-
-# Classes your model detects
+# Classes detected by the model
 CLASSES = ["tiger", "bear", "elephant", "wild boar", "lion", "wild buffalo"]
 
-# Track detections across frames
+# Track detections and email cooldowns
 detection_counter = {}
 last_email_sent = {}
-DETECTION_THRESHOLD = 20 # Number of frames before sending an alert
-EMAIL_COOLDOWN = 60  # Cooldown in seconds between emails for the same animal
+DETECTION_THRESHOLD = 20
+EMAIL_COOLDOWN = 60
+CONFIDENCE_THRESHOLD = 0.5  # Filter low-confidence detections
+
+def initialize_webcam():
+    """Initialize webcam capture, trying multiple indices and backends with continuous retries."""
+    print(f"Attempting to initialize webcam on {platform.system()}...")
+    indices = [0, 1, 2, 3]
+    max_retries = 5
+    backends = [cv2.CAP_ANY]
+    if platform.system() == "Windows":
+        backends.append(cv2.CAP_DSHOW)
+    elif platform.system() == "Linux":
+        backends.append(cv2.CAP_V4L2)
+    elif platform.system() == "Darwin":
+        backends.append(cv2.CAP_AVFOUNDATION)
+
+    while True:
+        for backend in backends:
+            backend_name = {
+                cv2.CAP_ANY: "CAP_ANY",
+                cv2.CAP_DSHOW: "CAP_DSHOW",
+                cv2.CAP_V4L2: "CAP_V4L2",
+                cv2.CAP_AVFOUNDATION: "CAP_AVFOUNDATION"
+            }.get(backend, "Unknown")
+            print(f"Trying backend: {backend_name}")
+            for index in indices:
+                for attempt in range(max_retries):
+                    try:
+                        cap = cv2.VideoCapture(index, backend)
+                        if cap.isOpened():
+                            print(f"Webcam opened successfully on index {index}, backend {backend_name}, attempt {attempt + 1}")
+                            return cap
+                        cap.release()
+                        print(f"Attempt {attempt + 1} failed to open webcam on index {index}, backend {backend_name}")
+                        time.sleep(0.5)
+                    except Exception as e:
+                        print(f"Error on index {index}, backend {backend_name}, attempt {attempt + 1}: {e}")
+                        time.sleep(0.5)
+        print("No webcam found. Retrying in 5 seconds...")
+        time.sleep(5)
 
 def send_email(recipient_email, animal_type, location="Serengeti National Park"):
-    """Send email alert about detected animal using Flask-Mail."""
+    """Send email alert about detected animal."""
     try:
-        print(f"Attempting to send email to {recipient_email} about {animal_type}")
-        
-        # Create message
+        print(f"Sending email to {recipient_email} about {animal_type}")
         subject = f"ALERT: {animal_type.capitalize()} Detected at {location}"
-        
         html_body = f"""
         <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f5f5f5;">
           <h2 style="color: #d9534f;">WildAlert: Animal Detection</h2>
@@ -73,137 +114,160 @@ def send_email(recipient_email, animal_type, location="Serengeti National Park")
           <p>-- WildAlert System</p>
         </div>
         """
-        
-        # Create and send message
-        msg = Message(
-            subject=subject,
-            recipients=[recipient_email],
-            html=html_body
-        )
-        
-        mail.send(msg)
-        print(f"Email alert successfully sent to {recipient_email} for {animal_type}")
+        msg = Message(subject=subject, recipients=[recipient_email], html=html_body)
+        with app.app_context():
+            mail.send(msg)
+        print(f"Email sent to {recipient_email} for {animal_type}")
         return True
     except Exception as e:
         print(f"Failed to send email: {e}")
         return False
 
 def handle_email_alert(animal_type, email):
-    """Check if we should send an email and send it if needed."""
+    """Handle email alerts with cooldown in a non-blocking thread."""
     current_time = time.time()
-    
-    # Check if we've sent an email for this animal recently
-    if animal_type in last_email_sent:
-        if current_time - last_email_sent[animal_type] < EMAIL_COOLDOWN:
-            print(f"Still in cooldown for {animal_type}, skipping email")
-            return False  # Still in cooldown period
-    
-    # Send email
-    with app.app_context():  # Required for Flask-Mail to work in a thread
-        success = send_email(email, animal_type)
-        if success:
-            last_email_sent[animal_type] = current_time
-        return success
+    if animal_type in last_email_sent and current_time - last_email_sent[animal_type] < EMAIL_COOLDOWN:
+        print(f"Cooldown active for {animal_type}")
+        return
+    last_email_sent[animal_type] = current_time
+    executor.submit(send_email, email, animal_type)
 
 def generate_frames(user_email="default@example.com"):
-    """Generate video frames with YOLO detection."""
-    cap = cv2.VideoCapture(VIDEO_PATH)
-    
-    if not cap.isOpened():
-        print(f"Error: Could not open video file at {VIDEO_PATH}")
-        return
-
-    print(f"Video file opened successfully! Will send alerts to: {user_email}")
+    """Generate webcam frames with YOLO detection, ensuring continuous operation."""
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop the video
+        cap = initialize_webcam()
+        if not cap:
+            print("Failed to initialize webcam. Retrying...")
+            time.sleep(5)
             continue
 
-        # Run YOLO detection
-        results = model(frame)
-        
-        # Reset frame-specific counters
-        frame_detections = set()
+        print(f"Streaming webcam feed for {user_email}")
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    print("Error: Failed to capture webcam frame. Releasing and retrying...")
+                    break
 
-        # Draw bounding boxes and labels on the frame
-        for result in results:
-            boxes = result.boxes.xyxy  # Bounding box coordinates
-            confidences = result.boxes.conf  # Confidence scores
-            class_ids = result.boxes.cls  # Class IDs
+                # Run YOLO detection
+                start_time = time.time()
+                try:
+                    results = model(frame, conf=CONFIDENCE_THRESHOLD)
+                except Exception as e:
+                    print(f"Error running YOLO detection: {e}")
+                    continue
+                detection_time = time.time() - start_time
+                print(f"YOLO detection took {detection_time:.2f} seconds")
 
-            for i in range(len(boxes)):
-                x1, y1, x2, y2 = map(int, boxes[i])
-                confidence = confidences[i]
-                class_id = int(class_ids[i])
-                animal_type = CLASSES[class_id]
-                label = f"{animal_type} {confidence:.2f}"
-                
-                # Add to frame detections
-                frame_detections.add(animal_type)
+                frame_detections = set()
 
-                # Draw rectangle and label
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-        
-        # Update detection counter for each animal type detected in this frame
-        for animal in frame_detections:
-            if animal not in detection_counter:
-                detection_counter[animal] = 1
-            else:
-                detection_counter[animal] += 1
-                
-                # Check if we need to send an alert
-                if detection_counter[animal] == DETECTION_THRESHOLD:
-                    # Send email alert in a separate thread to avoid blocking
-                    print(f"DETECTION THRESHOLD REACHED: {animal} detected in {DETECTION_THRESHOLD} consecutive frames")
-                    print(f"Sending alert for {animal} to {user_email}")
-                    threading.Thread(target=handle_email_alert, args=(animal, user_email)).start()
+                # Draw bounding boxes and labels
+                for result in results:
+                    boxes = result.boxes.xyxy
+                    confidences = result.boxes.conf
+                    class_ids = result.boxes.cls
+                    for i in range(len(boxes)):
+                        x1, y1, x2, y2 = map(int, boxes[i])
+                        confidence = confidences[i]
+                        class_id = int(class_ids[i])
+                        animal_type = CLASSES[class_id]
+                        label = f"{animal_type} {confidence:.2f}"
+                        frame_detections.add(animal_type)
+                        # Draw green rectangle and label
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
 
-        # Reset counters for animals not in this frame
-        for animal in list(detection_counter.keys()):
-            if animal not in frame_detections:
-                detection_counter[animal] = 0
+                # Update detection counter
+                for animal in frame_detections:
+                    detection_counter[animal] = detection_counter.get(animal, 0) + 1
+                    if detection_counter[animal] == DETECTION_THRESHOLD:
+                        print(f"Threshold reached: {animal} detected in {DETECTION_THRESHOLD} frames")
+                        handle_email_alert(animal, user_email)
 
-        # Encode frame as JPEG
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            continue
-        frame = buffer.tobytes()
+                # Reset counters for undetected animals
+                for animal in list(detection_counter.keys()):
+                    if animal not in frame_detections:
+                        detection_counter[animal] = 0
 
-        # Yield frame in byte format for streaming
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                # Encode frame
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if not ret:
+                    print("Error: Failed to encode frame")
+                    continue
+                frame = buffer.tobytes()
 
-    cap.release()
+                # Yield frame
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
+        except Exception as e:
+            print(f"Error in generate_frames: {e}")
+        finally:
+            if cap:
+                cap.release()
+                print("Webcam capture released")
+            time.sleep(1)  # Brief pause before retrying
 
 @app.route('/video_feed')
 def video_feed():
-    """Stream the video with detections."""
+    """Stream webcam feed with detections."""
     user_email = request.args.get('email', 'default@example.com')
-    print(f"Video feed requested with email: {user_email}")
+    print(f"Webcam feed requested: email={user_email}")
     return Response(generate_frames(user_email), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/test_webcam')
+def test_webcam():
+    """Stream raw webcam feed for testing."""
+    def gen():
+        while True:
+            cap = initialize_webcam()
+            if not cap:
+                print("Failed to initialize webcam in test_webcam. Retrying...")
+                time.sleep(5)
+                continue
+            try:
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        print("Error: Failed to capture webcam frame in test_webcam")
+                        break
+                    ret, buffer = cv2.imencode('.jpg', frame)
+                    if not ret:
+                        print("Error: Failed to encode frame in test_webcam")
+                        continue
+                    frame = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            except Exception as e:
+                print(f"Error in test_webcam: {e}")
+            finally:
+                if cap:
+                    cap.release()
+                    print("Webcam capture released in test_webcam")
+                time.sleep(1)
+    return Response(gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/send_alert', methods=['POST'])
 def send_alert():
-    """Endpoint to manually send an alert."""
+    """Manually send an alert."""
     data = request.json
     email = data.get('email')
     animal_type = data.get('animal_type', 'unspecified animal')
     location = data.get('location', 'Serengeti National Park')
-    
-    print(f"Manual alert requested for: {email}, animal: {animal_type}")
-    
+    print(f"Manual alert: email={email}, animal={animal_type}")
     if not email:
-        return jsonify({"success": False, "message": "Email is required"}), 400
-        
+        return jsonify({"success": False, "message": "Email required"}), 400
     success = send_email(email, animal_type, location)
     return jsonify({"success": success})
 
 @app.route('/')
 def index():
-    """Simple endpoint to verify server is running."""
+    """Verify server is running."""
     return "WildAlert Backend is running!"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    try:
+        print(f"Starting Flask server on {platform.system()} with OpenCV version {cv2.__version__}")
+        app.run(host='0.0.0.0', port=5000, debug=True)
+    except Exception as e:
+        print(f"Error starting Flask server: {e}")
